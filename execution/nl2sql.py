@@ -80,7 +80,18 @@ FROM `{BQ_FULL_TABLE}`
 WHERE mese_riferimento BETWEEN '2025-01-01' AND '2025-03-01'
 GROUP BY sede_lavoro;
 
-ISTRUZIONE FINALE: Restituisci SOLO la query SQL, senza markdown, senza commenti, senza spiegazioni. Solo il testo SQL puro che inizia con SELECT."""
+-- Cambiamenti sede per un dipendente nel corso di un anno (query storica corretta)
+SELECT mese_riferimento, sede_lavoro
+FROM `{BQ_FULL_TABLE}`
+WHERE LOWER(nominativo) LIKE '%neri%giorgio%'
+  AND mese_riferimento BETWEEN '2025-01-01' AND '2025-12-01'
+ORDER BY mese_riferimento;
+
+ISTRUZIONE FINALE:
+- Restituisci SOLO la query SQL, senza markdown, senza commenti, senza spiegazioni.
+- Solo il testo SQL puro che inizia con SELECT.
+- NON usare apostrofi o virgolette singole all'interno dei valori stringa. Usa solo virgolette singole per delimitare le stringhe SQL (es: WHERE nominativo LIKE '%neri%').
+- Per query storiche (es. "ha cambiato sede nel 2025?"), usa BETWEEN '2025-01-01' AND '2025-12-01' e GROUP BY o ORDER BY mese_riferimento."""
 
 
 def generate_sql(user_question: str, resolved_month: str) -> str:
@@ -130,6 +141,11 @@ def generate_sql(user_question: str, resolved_month: str) -> str:
         if not sql.upper().startswith("SELECT"):
             logger.error("Gemini NL2SQL non ha restituito un SELECT valido")
             raise RuntimeError("Il modello non ha generato una query SQL valida.")
+
+        # Controllo basico: le virgolette singole devono essere bilanciate
+        if sql.count("'") % 2 != 0:
+            logger.error("SQL generato con string literal non chiusa: %s", sql[:200])
+            raise RuntimeError("Il modello ha generato una query SQL non valida (string literal non chiusa).")
 
         logger.info("NL2SQL OK | month=%s | sql_hash=%s", resolved_month, hash(sql))
         return sql

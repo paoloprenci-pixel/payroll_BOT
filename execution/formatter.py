@@ -59,7 +59,7 @@ def format_response(user_question: str, resolved_month: str, query_result: list[
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
             "temperature": 0.3,
-            "maxOutputTokens": 512,
+            "maxOutputTokens": 1024,
         },
     }
 
