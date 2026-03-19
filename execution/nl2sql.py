@@ -131,7 +131,21 @@ def generate_sql(user_question: str, resolved_month: str) -> str:
         response = requests.post(GEMINI_API_URL, json=payload, headers=headers, timeout=30)
         response.raise_for_status()
         data = response.json()
-        sql = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        
+        # Gestione esplicita dei diversi finishReason di Gemini
+        candidate = data.get("candidates", [{}])[0]
+        finish_reason = candidate.get("finishReason", "STOP")
+        if finish_reason not in ("STOP", "MAX_TOKENS"):
+            logger.error("Gemini NL2SQL bloccato | finishReason=%s", finish_reason)
+            raise RuntimeError(f"Il modello non ha generato una risposta valida (finishReason={finish_reason}).")
+        
+        parts = candidate.get("content", {}).get("parts", [])
+        if not parts:
+            logger.error("Gemini NL2SQL: nessun contenuto nella risposta")
+            raise RuntimeError("Il modello non ha restituito contenuto.")
+        
+        sql = parts[0]["text"].strip()
+        logger.info("NL2SQL raw output | month=%s | raw=%s", resolved_month, sql[:300])
 
         # Pulizia: rimuovi eventuali blocchi markdown (```sql ... ```)
         sql = re.sub(r"^```(?:sql)?\s*", "", sql, flags=re.IGNORECASE)
@@ -139,15 +153,10 @@ def generate_sql(user_question: str, resolved_month: str) -> str:
         sql = sql.strip()
 
         if not sql.upper().startswith("SELECT"):
-            logger.error("Gemini NL2SQL non ha restituito un SELECT valido")
+            logger.error("Gemini NL2SQL non ha restituito un SELECT valido | sql=%s", sql[:200])
             raise RuntimeError("Il modello non ha generato una query SQL valida.")
 
-        # Controllo basico: le virgolette singole devono essere bilanciate
-        if sql.count("'") % 2 != 0:
-            logger.error("SQL generato con string literal non chiusa: %s", sql[:200])
-            raise RuntimeError("Il modello ha generato una query SQL non valida (string literal non chiusa).")
-
-        logger.info("NL2SQL OK | month=%s | sql_hash=%s", resolved_month, hash(sql))
+        logger.info("NL2SQL OK | month=%s | sql=%s", resolved_month, sql[:300])
         return sql
 
     except requests.RequestException as e:
