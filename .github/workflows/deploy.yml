@@ -1,0 +1,61 @@
+name: Deploy HR Bot to Cloud Functions
+
+on:
+  push:
+    branches: [ main ]
+
+env:
+  GCP_PROJECT_ID: gen-lang-client-0296046668
+  GCP_REGION: europe-west1
+  FUNCTION_NAME: hr_bot_webhook
+  RUNTIME: python312
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short --ignore=tests/test_bq_client.py
+        # test_bq_client.py richiede connessione reale a BigQuery — escluso da CI
+
+  deploy:
+    name: Deploy to Cloud Functions
+    runs-on: ubuntu-latest
+    needs: test  # Deploy solo se i test passano
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Deploy Cloud Function
+        run: |
+          gcloud functions deploy ${{ env.FUNCTION_NAME }} \
+            --gen2 \
+            --runtime=${{ env.RUNTIME }} \
+            --region=${{ env.GCP_REGION }} \
+            --source=. \
+            --entry-point=hr_bot_webhook \
+            --trigger-http \
+            --allow-unauthenticated \
+            --memory=256Mi \
+            --timeout=60s \
+            --set-secrets="GEMINI_API_KEY=payroll-gemini-api-key:latest,TELEGRAM_BOT_TOKEN=payroll-telegram-bot-token:latest" \
+            --set-env-vars="GCP_PROJECT_ID=${{ env.GCP_PROJECT_ID }},GCP_REGION=${{ env.GCP_REGION }},BQ_DATASET=hr_analytics,BQ_TABLE=dipendenti_storico,GEMINI_MODEL=gemini-2.0-flash,AUTHORIZED_EMAIL=paoloprenci@gmail.com,LAST_AVAILABLE_MONTH=2026-02-01"
