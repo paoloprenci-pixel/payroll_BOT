@@ -91,7 +91,8 @@ ISTRUZIONE FINALE:
 - Restituisci SOLO la query SQL, senza markdown, senza commenti, senza spiegazioni.
 - Solo il testo SQL puro che inizia con SELECT.
 - NON usare apostrofi o virgolette singole all'interno dei valori stringa. Usa solo virgolette singole per delimitare le stringhe SQL (es: WHERE nominativo LIKE '%neri%').
-- Per query storiche (es. "ha cambiato sede nel 2025?"), usa BETWEEN '2025-01-01' AND '2025-12-01' e GROUP BY o ORDER BY mese_riferimento."""
+- Per query storiche (es. "ha cambiato sede nel 2025?"), usa BETWEEN '2025-01-01' AND '2025-12-01' e ORDER BY mese_riferimento."""
+
 
 
 def generate_sql(user_question: str, resolved_month: str) -> str:
