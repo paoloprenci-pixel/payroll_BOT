@@ -31,7 +31,21 @@ def run_query(sql: str) -> list[dict]:
     try:
         query_job = client.query(sql)
         rows = query_job.result()
-        return [dict(row) for row in rows]
+        # Conversione dei risultati in lista di dizionari con tipi base Python
+        import decimal
+        import datetime
+        
+        results = []
+        for row in rows:
+            dict_row = dict(row)
+            for key, value in dict_row.items():
+                if isinstance(value, decimal.Decimal):
+                    dict_row[key] = float(value)
+                elif isinstance(value, datetime.date):
+                    dict_row[key] = value.isoformat()
+            results.append(dict_row)
+            
+        return results
     except GoogleAPIError as e:
         # Log senza dati nominativi: solo il tipo di errore e la query (non i risultati)
         logger.error("BigQuery error | query_hash=%s | error=%s", hash(sql), str(e))

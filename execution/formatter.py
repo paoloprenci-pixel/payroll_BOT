@@ -44,10 +44,12 @@ def format_response(user_question: str, resolved_month: str, query_result: list[
     if not query_result:
         return f"Nessun dato trovato per il periodo richiesto (riferimento: {_format_month(resolved_month)})."
 
-    result_text = str(query_result)
+    import json
+    result_text = json.dumps(query_result, ensure_ascii=False, indent=2)
 
     prompt = (
         f"{FORMATTER_SYSTEM}\n\n"
+        f"IMPORTANTE: Non omettere MAI i valori numerici presenti nel risultato della query. Se vedi un numero, riportalo chiaramente.\n\n"
         f"DOMANDA UTENTE: {user_question}\n"
         f"MESE/PERIODO DI RIFERIMENTO: {_format_month(resolved_month)}\n"
         f"RISULTATO QUERY: {result_text}"
