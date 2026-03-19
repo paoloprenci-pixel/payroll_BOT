@@ -58,4 +58,4 @@ jobs:
             --memory=256Mi \
             --timeout=60s \
             --set-secrets="GEMINI_API_KEY=payroll-gemini-api-key:latest,TELEGRAM_BOT_TOKEN=payroll-telegram-bot-token:latest" \
-            --set-env-vars="GCP_PROJECT_ID=${{ env.GCP_PROJECT_ID }},GCP_REGION=${{ env.GCP_REGION }},BQ_DATASET=hr_analytics,BQ_TABLE=dipendenti_storico,GEMINI_MODEL=gemini-2.0-flash,AUTHORIZED_EMAIL=paoloprenci@gmail.com,LAST_AVAILABLE_MONTH=2026-02-01"
+            --set-env-vars="GCP_PROJECT_ID=${{ env.GCP_PROJECT_ID }},GCP_REGION=${{ env.GCP_REGION }},BQ_DATASET=hr_analytics,BQ_TABLE=dipendenti_storico,GEMINI_MODEL=gemini-2.5-flash,AUTHORIZED_EMAIL=paoloprenci@gmail.com,LAST_AVAILABLE_MONTH=2026-02-01"
