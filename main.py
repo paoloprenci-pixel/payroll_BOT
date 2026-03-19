@@ -84,7 +84,7 @@ def hr_bot_webhook(request: Request):
         # ── STEP 3 — NL2SQL ───────────────────────────────────────────────────
         try:
             sql = generate_sql(user_text, resolved_month)
-            logger.info("SQL generato | chat_id=%d", chat_id)
+            logger.info("SQL generato | chat_id=%d | sql=%s", chat_id, sql)
         except RuntimeError as e:
             logger.error("NL2SQL error | chat_id=%d | %s", chat_id, str(e))
             send_message(chat_id, "⚠️ Non sono riuscito a interpretare la domanda. Prova a riformularla.")
@@ -93,7 +93,7 @@ def hr_bot_webhook(request: Request):
         # ── STEP 4 — Esecuzione query BigQuery ───────────────────────────────
         try:
             results = run_query(sql)
-            logger.info("BQ query OK | chat_id=%d | rows=%d", chat_id, len(results))
+            logger.info("BQ query OK | chat_id=%d | rows=%d | results=%s", chat_id, len(results), str(results))
         except RuntimeError as e:
             logger.error("BQ error | chat_id=%d | %s", chat_id, str(e))
             send_message(chat_id, "⚠️ Si è verificato un errore nell'accesso al database. Riprova tra qualche secondo.")
