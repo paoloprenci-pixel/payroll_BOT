@@ -8,6 +8,7 @@ Chiama Gemini 2.0 Flash via REST API con un prompt strutturato che include:
 - Il mese risolto (default o indicato dall'utente)
 """
 import re
+import time
 import requests
 import logging
 from config import GEMINI_API_KEY, GEMINI_API_URL, LAST_AVAILABLE_MONTH, BQ_FULL_TABLE
@@ -128,41 +129,58 @@ def generate_sql(user_question: str, resolved_month: str) -> str:
         "x-goog-api-key": GEMINI_API_KEY,
     }
 
-    try:
-        response = requests.post(GEMINI_API_URL, json=payload, headers=headers, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Gestione esplicita dei diversi finishReason di Gemini
-        candidate = data.get("candidates", [{}])[0]
-        finish_reason = candidate.get("finishReason", "STOP")
-        if finish_reason not in ("STOP", "MAX_TOKENS"):
-            logger.error("Gemini NL2SQL bloccato | finishReason=%s", finish_reason)
-            raise RuntimeError(f"Il modello non ha generato una risposta valida (finishReason={finish_reason}).")
-        
-        parts = candidate.get("content", {}).get("parts", [])
-        if not parts:
-            logger.error("Gemini NL2SQL: nessun contenuto nella risposta")
-            raise RuntimeError("Il modello non ha restituito contenuto.")
-        
-        sql = parts[0]["text"].strip()
-        logger.info("NL2SQL raw output | month=%s | raw=%s", resolved_month, sql[:300])
+    max_retries = 3
+    retry_delay = 2  # secondi iniziali
 
-        # Pulizia: rimuovi eventuali blocchi markdown (```sql ... ```)
-        sql = re.sub(r"^```(?:sql)?\s*", "", sql, flags=re.IGNORECASE)
-        sql = re.sub(r"\s*```$", "", sql)
-        sql = sql.strip()
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(GEMINI_API_URL, json=payload, headers=headers, timeout=30)
+            
+            # Gestione rate limit 429: backoff esponenziale
+            if response.status_code == 429:
+                wait = retry_delay * (2 ** attempt)
+                logger.warning("Gemini rate limit (429) | attempt=%d/%d | wait=%ds", attempt + 1, max_retries, wait)
+                time.sleep(wait)
+                continue
+            
+            response.raise_for_status()
+            data = response.json()
+            
+            # Gestione esplicita dei diversi finishReason di Gemini
+            candidate = data.get("candidates") or [{}]
+            candidate = candidate[0] if candidate else {}
+            finish_reason = candidate.get("finishReason", "STOP")
+            if finish_reason not in ("STOP", "MAX_TOKENS"):
+                logger.error("Gemini NL2SQL bloccato | finishReason=%s", finish_reason)
+                raise RuntimeError(f"Il modello non ha generato una risposta valida (finishReason={finish_reason}).")
+            
+            parts = candidate.get("content", {}).get("parts", [])
+            if not parts:
+                logger.error("Gemini NL2SQL: nessun contenuto nella risposta | data=%s", str(data)[:200])
+                raise RuntimeError("Il modello non ha restituito contenuto.")
+            
+            sql = parts[0]["text"].strip()
+            logger.info("NL2SQL raw output | month=%s | raw=%s", resolved_month, sql[:300])
 
-        if not sql.upper().startswith("SELECT"):
-            logger.error("Gemini NL2SQL non ha restituito un SELECT valido | sql=%s", sql[:200])
-            raise RuntimeError("Il modello non ha generato una query SQL valida.")
+            # Pulizia: rimuovi eventuali blocchi markdown (```sql ... ```)
+            sql = re.sub(r"^```(?:sql)?\s*", "", sql, flags=re.IGNORECASE)
+            sql = re.sub(r"\s*```$", "", sql)
+            sql = sql.strip()
 
-        logger.info("NL2SQL OK | month=%s | sql=%s", resolved_month, sql[:300])
-        return sql
+            if not sql.upper().startswith("SELECT"):
+                logger.error("Gemini NL2SQL non ha restituito un SELECT valido | sql=%s", sql[:200])
+                raise RuntimeError("Il modello non ha generato una query SQL valida.")
 
-    except requests.RequestException as e:
-        logger.error("Gemini API error in NL2SQL: %s", str(e))
-        raise RuntimeError(f"Errore nella chiamata a Gemini: {type(e).__name__}") from e
+            logger.info("NL2SQL OK | month=%s | sql=%s", resolved_month, sql[:300])
+            return sql
+
+        except requests.RequestException as e:
+            logger.error("Gemini API error in NL2SQL (attempt %d/%d): %s", attempt + 1, max_retries, str(e))
+            if attempt == max_retries - 1:
+                raise RuntimeError(f"Errore nella chiamata a Gemini dopo {max_retries} tentativi: {type(e).__name__}") from e
+            time.sleep(retry_delay * (2 ** attempt))
+
+    raise RuntimeError("Errore nella chiamata a Gemini: tentativi esauriti.")
 
 
 def resolve_month(user_question: str) -> str:
