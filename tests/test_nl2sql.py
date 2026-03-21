@@ -1,5 +1,5 @@
 """
-test_nl2sql.py — Test per il modulo nl2sql (con mock di Gemini API).
+test_nl2sql.py — Test per il modulo nl2sql (con mock di OpenRouter API).
 """
 import sys, os
 import unittest.mock as mock
@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 import pytest
 from execution.nl2sql import resolve_month, generate_sql
+from execution.errors import OutOfScopeError
 from config import LAST_AVAILABLE_MONTH
 
 
@@ -28,8 +29,8 @@ def test_generate_sql_returns_select(mock_post):
     mock_post.return_value = mock.Mock(
         status_code=200,
         json=lambda: {
-            "candidates": [{
-                "content": {"parts": [{"text": "SELECT COUNT(*) FROM `hr_analytics.dipendenti_storico` WHERE mese_riferimento = '2026-02-01'"}]}
+            "choices": [{
+                "message": {"content": "SELECT COUNT(*) FROM `hr_analytics.dipendenti_storico` WHERE mese_riferimento = '2026-02-01'"}
             }]
         }
     )
@@ -45,8 +46,8 @@ def test_generate_sql_strips_markdown_fences(mock_post):
     mock_post.return_value = mock.Mock(
         status_code=200,
         json=lambda: {
-            "candidates": [{
-                "content": {"parts": [{"text": "```sql\nSELECT COUNT(*) FROM `hr_analytics.dipendenti_storico`\n```"}]}
+            "choices": [{
+                "message": {"content": "```sql\nSELECT COUNT(*) FROM `hr_analytics.dipendenti_storico`\n```"}
             }]
         }
     )
@@ -59,12 +60,12 @@ def test_generate_sql_strips_markdown_fences(mock_post):
 
 @mock.patch("execution.nl2sql.requests.post")
 def test_generate_sql_raises_on_non_select(mock_post):
-    """generate_sql deve sollevare RuntimeError se Gemini non restituisce SELECT."""
+    """generate_sql deve sollevare RuntimeError se il modello non restituisce SELECT."""
     mock_post.return_value = mock.Mock(
         status_code=200,
         json=lambda: {
-            "candidates": [{
-                "content": {"parts": [{"text": "Non so rispondere."}]}
+            "choices": [{
+                "message": {"content": "Non so rispondere."}
             }]
         }
     )
@@ -72,3 +73,20 @@ def test_generate_sql_raises_on_non_select(mock_post):
 
     with pytest.raises(RuntimeError):
         generate_sql("Domanda impossibile", LAST_AVAILABLE_MONTH)
+
+
+@mock.patch("execution.nl2sql.requests.post")
+def test_generate_sql_raises_out_of_scope(mock_post):
+    """generate_sql deve sollevare OutOfScopeError se il modello risponde OUT_OF_SCOPE."""
+    mock_post.return_value = mock.Mock(
+        status_code=200,
+        json=lambda: {
+            "choices": [{
+                "message": {"content": "OUT_OF_SCOPE"}
+            }]
+        }
+    )
+    mock_post.return_value.raise_for_status = lambda: None
+
+    with pytest.raises(OutOfScopeError):
+        generate_sql("Che tempo fa a Roma?", LAST_AVAILABLE_MONTH)

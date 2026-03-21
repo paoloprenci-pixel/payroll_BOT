@@ -1,5 +1,5 @@
 """
-test_formatter.py — Test per il modulo formatter (con mock di Gemini API).
+test_formatter.py — Test per il modulo formatter (con mock di OpenRouter API).
 """
 import sys, os
 import unittest.mock as mock
@@ -28,8 +28,8 @@ def test_format_response_includes_month(mock_post):
     mock_post.return_value = mock.Mock(
         status_code=200,
         json=lambda: {
-            "candidates": [{
-                "content": {"parts": [{"text": "A febbraio 2026 ci sono 12 dipendenti a Milano."}]}
+            "choices": [{
+                "message": {"content": "A febbraio 2026 ci sono 12 dipendenti a Milano."}
             }]
         }
     )
@@ -42,7 +42,7 @@ def test_format_response_includes_month(mock_post):
 
 @mock.patch("execution.formatter.requests.post")
 def test_format_response_raises_on_api_error(mock_post):
-    """Errore Gemini API → RuntimeError."""
+    """Errore API → RuntimeError."""
     import requests as req
     mock_post.side_effect = req.RequestException("timeout")
 
