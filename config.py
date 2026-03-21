@@ -13,13 +13,11 @@ BQ_DATASET: str = os.getenv("BQ_DATASET", "hr_analytics")
 BQ_TABLE: str = os.getenv("BQ_TABLE", "dipendenti_storico")
 BQ_FULL_TABLE: str = f"{BQ_DATASET}.{BQ_TABLE}"
 
-# ── Gemini (Google AI Studio REST API) ───────────────────────────────────────
-GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-GEMINI_API_URL: str = (
-    f"https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{GEMINI_MODEL}:generateContent"
-)
+# ── OpenRouter (OpenAI-compatible) ──────────────────────────────────────────
+# Il modello predefinito è meta-llama/llama-3.3-70b-instruct:free (più performante tra i free)
+OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "").strip()
+OPENROUTER_MODEL: str = os.getenv("OPENROUTER_MODEL", "google/gemini-2.5-flash")
+OPENROUTER_API_URL: str = "https://openrouter.ai/api/v1/chat/completions"
 
 # ── Telegram ─────────────────────────────────────────────────────────────────
 TELEGRAM_BOT_TOKEN: str = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()

@@ -11,7 +11,8 @@ import re
 import time
 import requests
 import logging
-from config import GEMINI_API_KEY, GEMINI_API_URL, LAST_AVAILABLE_MONTH, BQ_FULL_TABLE
+from config import OPENROUTER_API_KEY, OPENROUTER_API_URL, OPENROUTER_MODEL, LAST_AVAILABLE_MONTH, BQ_FULL_TABLE
+from execution.errors import OutOfScopeError
 
 logger = logging.getLogger(__name__)
 
@@ -92,7 +93,8 @@ ISTRUZIONE FINALE:
 - Restituisci SOLO la query SQL, senza markdown, senza commenti, senza spiegazioni.
 - Solo il testo SQL puro che inizia con SELECT.
 - NON usare apostrofi o virgolette singole all'interno dei valori stringa. Usa solo virgolette singole per delimitare le stringhe SQL (es: WHERE nominativo LIKE '%neri%').
-- Per query storiche (es. "ha cambiato sede nel 2025?"), usa BETWEEN '2025-01-01' AND '2025-12-01' e ORDER BY mese_riferimento."""
+- Per query storiche (es. "ha cambiato sede nel 2025?"), usa BETWEEN '2025-01-01' AND '2025-12-01' e ORDER BY mese_riferimento.
+- Se la domanda NON è pertinente ai dati HR o non può essere risposta con la tabella fornita, rispondi ESATTAMENTE con `OUT_OF_SCOPE`. Non provare a inventare SQL."""
 
 
 
@@ -117,70 +119,76 @@ def generate_sql(user_question: str, resolved_month: str) -> str:
     )
 
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.0,
-            "maxOutputTokens": 1024,
-        },
+        "model": OPENROUTER_MODEL,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.0,
+        "max_tokens": 1024,
     }
 
     headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY,
+        "HTTP-Referer": "https://github.com/paoloprenci-pixel/payroll_BOT", # Optional but good practice
+        "X-Title": "HR Director Bot",
     }
 
-    max_retries = 3
-    retry_delay = 2  # secondi iniziali
+    max_retries = 5
+    retry_delay = 3  # secondi iniziali più alti per i rate limit
 
     for attempt in range(max_retries):
         try:
-            response = requests.post(GEMINI_API_URL, json=payload, headers=headers, timeout=30)
+            response = requests.post(OPENROUTER_API_URL, json=payload, headers=headers, timeout=30)
             
-            # Gestione rate limit 429: backoff esponenziale
+            # Gestione rate limit: OpenRouter usa 429 per rate limit
             if response.status_code == 429:
                 wait = retry_delay * (2 ** attempt)
-                logger.warning("Gemini rate limit (429) | attempt=%d/%d | wait=%ds", attempt + 1, max_retries, wait)
+                logger.warning("OpenRouter rate limit (429) | attempt=%d/%d | wait=%ds | model=%s", attempt + 1, max_retries, wait, OPENROUTER_MODEL)
                 time.sleep(wait)
                 continue
             
             response.raise_for_status()
             data = response.json()
             
-            # Gestione esplicita dei diversi finishReason di Gemini
-            candidate = data.get("candidates") or [{}]
-            candidate = candidate[0] if candidate else {}
-            finish_reason = candidate.get("finishReason", "STOP")
-            if finish_reason not in ("STOP", "MAX_TOKENS"):
-                logger.error("Gemini NL2SQL bloccato | finishReason=%s", finish_reason)
-                raise RuntimeError(f"Il modello non ha generato una risposta valida (finishReason={finish_reason}).")
+            # Parsing risposta formato OpenAI/OpenRouter
+            choices = data.get("choices", [])
+            if not choices:
+                logger.error("OpenRouter: nessuna scelta nella risposta | data=%s", str(data)[:500])
+                raise RuntimeError("Il modello non ha restituito scelte.")
             
-            parts = candidate.get("content", {}).get("parts", [])
-            if not parts:
-                logger.error("Gemini NL2SQL: nessun contenuto nella risposta | data=%s", str(data)[:200])
-                raise RuntimeError("Il modello non ha restituito contenuto.")
-            
-            sql = parts[0]["text"].strip()
-            logger.info("NL2SQL raw output | month=%s | raw=%s", resolved_month, sql[:300])
+            sql = choices[0].get("message", {}).get("content", "").strip()
+            logger.info("NL2SQL raw output | month=%s | model=%s | raw=%s", resolved_month, OPENROUTER_MODEL, sql[:300])
 
             # Pulizia: rimuovi eventuali blocchi markdown (```sql ... ```)
             sql = re.sub(r"^```(?:sql)?\s*", "", sql, flags=re.IGNORECASE)
             sql = re.sub(r"\s*```$", "", sql)
             sql = sql.strip()
 
+            if sql.upper() == "OUT_OF_SCOPE":
+                logger.info("Question detected as OUT_OF_SCOPE | question=%s", user_question)
+                raise OutOfScopeError("La domanda non è pertinente ai dati HR.")
+
             if not sql.upper().startswith("SELECT"):
-                logger.error("Gemini NL2SQL non ha restituito un SELECT valido | sql=%s", sql[:200])
+                logger.error("LLM NL2SQL non ha restituito un SELECT valido | model=%s | sql=%s", OPENROUTER_MODEL, sql[:200])
                 raise RuntimeError("Il modello non ha generato una query SQL valida.")
 
-            logger.info("NL2SQL OK | month=%s | sql=%s", resolved_month, sql[:300])
+            logger.info("NL2SQL OK | month=%s | model=%s | sql=%s", resolved_month, OPENROUTER_MODEL, sql[:300])
             return sql
 
-        except requests.RequestException as e:
-            logger.error("Gemini API error in NL2SQL (attempt %d/%d): %s", attempt + 1, max_retries, str(e))
+        except requests.HTTPError as e:
+            body = response.text if 'response' in locals() else "Unknown"
+            logger.error("OpenRouter HTTP Error (attempt %d/%d) | model=%s | error=%s | Body: %s", attempt + 1, max_retries, OPENROUTER_MODEL, str(e), body)
             if attempt == max_retries - 1:
-                raise RuntimeError(f"Errore nella chiamata a Gemini dopo {max_retries} tentativi: {type(e).__name__}") from e
+                raise RuntimeError(f"Errore HTTP OpenRouter ({OPENROUTER_MODEL}) dopo {max_retries} tentativi: {str(e)} | Body: {body}") from e
+            time.sleep(retry_delay * (2 ** attempt))
+        except requests.RequestException as e:
+            logger.error("OpenRouter Request Error (attempt %d/%d) | model=%s | error=%s", attempt + 1, max_retries, OPENROUTER_MODEL, str(e))
+            if attempt == max_retries - 1:
+                raise RuntimeError(f"Errore nella chiamata a OpenRouter ({OPENROUTER_MODEL}) dopo {max_retries} tentativi: {type(e).__name__}") from e
             time.sleep(retry_delay * (2 ** attempt))
 
-    raise RuntimeError("Errore nella chiamata a Gemini: tentativi esauriti.")
+    raise RuntimeError(f"Errore nella chiamata a OpenRouter ({OPENROUTER_MODEL}): tentativi esauriti.")
 
 
 def resolve_month(user_question: str) -> str:
