@@ -7,7 +7,7 @@ sempre il mese o periodo di riferimento usato.
 """
 import requests
 import logging
-from config import GEMINI_API_KEY, GEMINI_API_URL
+from config import OPENROUTER_API_KEY, OPENROUTER_API_URL, OPENROUTER_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -56,28 +56,29 @@ def format_response(user_question: str, resolved_month: str, query_result: list[
     )
 
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": 0.3,
-            "maxOutputTokens": 1024,
-        },
+        "model": OPENROUTER_MODEL,
+        "messages": [
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": 0.3,
+        "max_tokens": 1024,
     }
 
     headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
         "Content-Type": "application/json",
-        "x-goog-api-key": GEMINI_API_KEY,
     }
 
     try:
-        response = requests.post(GEMINI_API_URL, json=payload, headers=headers, timeout=30)
+        response = requests.post(OPENROUTER_API_URL, json=payload, headers=headers, timeout=30)
         response.raise_for_status()
         data = response.json()
-        answer = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        answer = data["choices"][0]["message"]["content"].strip()
         logger.info("Formatter OK | month=%s | answer_len=%d", resolved_month, len(answer))
         return answer
 
     except requests.RequestException as e:
-        logger.error("Gemini API error in formatter: %s", str(e))
+        logger.error("OpenRouter API error in formatter: %s", str(e))
         raise RuntimeError(f"Errore nella formattazione della risposta: {type(e).__name__}") from e
 
 
